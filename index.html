@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Arena Sobrevivência: V41 Restaurada + Revive</title>
+    <title>Arena Sobrevivência: V42 (Multiplayer Restaurado e Estável)</title>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
@@ -68,6 +68,7 @@
             font-size: 10px; padding: 14px 18px; border: 3px solid #fff;
             box-shadow: 4px 4px 0 #145a32; cursor: pointer; text-transform: uppercase; display: none;
         }
+        #reviveBtn:active { transform: translate(3px, 3px); box-shadow: 0 0 0 #000; }
         #spectatorOverlay {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             font-size: 14px; color: #e74c3c; text-shadow: 3px 3px 0 #000; z-index: 35; display: none; pointer-events: none;
@@ -80,7 +81,7 @@
     <button id="mobileGarageBtn" onclick="uiClick(); toggleGarage()">⚙️ Garagem</button>
     <button id="mobileChatBtn" onclick="uiClick(); openChat()">💬 Chat</button>
     <button id="reviveBtn" onclick="uiClick(); tryReviveFriend()">❤️ REVIVER AMIGO (1000 pts)</button>
-    <div id="spectatorOverlay">👀 MODO ESPECTADOR<br><span style="font-size:9px; color:#fff;">Seu amigo está jogando</span></div>
+    <div id="spectatorOverlay">👀 MODO ESPECTADOR<br><span style="font-size:9px; color:#fff;">Acompanhando a partida...</span></div>
 
     <div id="eventBanner">⚠️ EVENTO: <span id="eventNameText">NENHUM</span></div>
     <div id="chatBanner"></div>
@@ -91,7 +92,7 @@
         <p>Vidas: <span id="livesText" style="color: #2ecc71; font-weight: bold;">❤️ 3</span></p>
         <p>Bolas: <span id="ballsCount" style="color: #e74c3c; font-weight: bold;">1</span></p>
         <p>Jogadores: <span id="playersOnlineText" style="color: #3498db;">1</span></p>
-        <p>Sistema: <span class="coadmin-tag" id="hostStatus">V41 (RESTAURADA)</span></p>
+        <p>Sistema: <span class="coadmin-tag" id="hostStatus">V41 (MULTIPLAYER REAL)</span></p>
         <p>Arsenal Ativo: <span id="unlockProgress" style="color: #f39c12;">Nível 0/5</span></p>
         <p>Próx Evento: <span id="nextEventText" style="color: #00ffff;">15s</span></p>
         <p id="actionText"></p> 
@@ -229,6 +230,7 @@
                             }
                         }
                         else if (data.type === 'move') {
+                            // RECUPERADO: Renderizando o amigo perfeitamente
                             if (!remotePlayers[data.id]) {
                                 remotePlayers[data.id] = { 
                                     x: data.x, y: data.y, targetX: data.x, targetY: data.y, 
@@ -245,6 +247,13 @@
                                 remotePlayers[data.id].targetAngle = data.angle; 
                                 remotePlayers[data.id].drifting = data.drifting; 
                                 remotePlayers[data.id].lastUpdate = Date.now();
+                            }
+                        }
+                        else if (data.type === 'gameover') {
+                            if (gameState === 'playing' || gameState === 'garage') {
+                                gameState = 'dead'; player.lives = 0; updateLivesUI();
+                                document.getElementById('gameOverTitle').innerText = "SEU AMIGO BATEU AS BOTAS!";
+                                setTimeout(() => { document.getElementById('gameOverScreen').style.display = 'flex'; }, 1000);
                             }
                         }
                         else if (data.type === 'player_dead') {
@@ -517,6 +526,7 @@
             playTone(300, 'square', 0.3, 0.2, 50);
         }
 
+        // FUNÇÃO DE MORTE CORRIGIDA: Não quebra o update das outras coisas
         function handlePlayerDeathSafe() {
             if (isSpectating) return;
             let hasOnlineFriend = (mqttClient && mqttClient.connected && Object.keys(remotePlayers).length > 0);
@@ -606,6 +616,7 @@
                 return;
             }
 
+            // O JOGO INTEIRO CONTINUA RODANDO AQUI
             survivalTime += dt; 
             score += dt * 12 * Math.max(1, chaosBalls.length);
             
@@ -728,91 +739,7 @@
                 for (let i = 0; i < powerUps.length; i++) { powerUps[i].x += powerUps[i].vx * dt; powerUps[i].y += powerUps[i].vy * dt; }
             }
 
-            if (isSpectating) return;
-
-            let carCenterX = player.x + player.width / 2; 
-            let carCenterY = player.y + player.height / 2;
-            let currentSpeed = getDist(0, 0, player.vx, player.vy);
-
-            let bcElem = document.getElementById('ballsCount');
-            if(bcElem) bcElem.innerText = chaosBalls.length;
-
-            for (let i = chaosBalls.length - 1; i >= 0; i--) {
-                let b = chaosBalls[i];
-                let distToCar = getDist(carCenterX, carCenterY, b.x, b.y);
-
-                let isMovingFast = currentSpeed > 40;
-                let meleeRange = (isMovingFast && unlockedMeleeCount > 0) ? (15 + (unlockedMeleeCount * 4)) : 0;
-                if (meleeRange > 0 && distToCar < b.radius + meleeRange) {
-                    let pushAngle = Math.atan2(b.y - carCenterY, b.x - carCenterX);
-                    b.vx = Math.cos(pushAngle) * 250;
-                    b.vy = Math.sin(pushAngle) * 250;
-                }
-
-                if (distToCar < b.radius + 15) {
-                    if (player.invulnerableTimer <= 0) {
-                        player.lives--; updateLivesUI(); shake(0.4, 15); player.invulnerableTimer = 1.2;
-                        hitEffects.push({ x: b.x, y: b.y, timer: 0.2, radius: 20 }); playTone(150, 'sawtooth', 0.2, 0.15, 50);
-                        if (player.lives <= 0) {
-                            handlePlayerDeathSafe();
-                        }
-                    }
-                    let anglePush = Math.atan2(b.y - carCenterY, b.x - carCenterX);
-                    b.vx = Math.cos(anglePush) * 350; b.vy = Math.sin(anglePush) * 350;
-                }
-            }
-
-            let nextEventEl = document.getElementById('nextEventText'); if(nextEventEl) nextEventEl.innerText = Math.ceil(Math.max(0, nextEventInterval - randomEventTimer)) + "s";
-            if (player.invulnerableTimer > 0) player.invulnerableTimer -= dt;
-            if (player.chatTimer > 0) player.chatTimer -= dt;
-            if (shakeTime > 0) shakeTime -= dt;
-
-            for (let i = activeLasers.length - 1; i >= 0; i--) { activeLasers[i].timer -= dt; if (activeLasers[i].timer <= 0) activeLasers.splice(i, 1); }
-
-            let ix = 0, iy = 0, isAccelerating = false;
-            if (keys.w) { iy -= 1; isAccelerating = true; } if (keys.s) { iy += 1; isAccelerating = true; }
-            if (keys.a) { ix -= 1; isAccelerating = true; } if (keys.d) { ix += 1; isAccelerating = true; }
-            
-            if (ix !== 0 || iy !== 0) {
-                let len = getDist(0, 0, ix, iy); player.angle = Math.atan2(ix/len, -iy/len);
-                player.vx += (ix/len) * player.accel * dt; player.vy += (iy/len) * player.accel * dt;
-                isAccelerating = true;
-            } else if (touchTarget) {
-                let dx = touchTarget.x - player.x, dy = touchTarget.y - player.y, distToTouch = getDist(0, 0, dx, dy);
-                if (distToTouch > 10) { player.angle = Math.atan2(dx, -dy); player.vx += (dx/distToTouch) * player.accel * dt; player.vy += (dy/distToTouch) * player.accel * dt; isAccelerating = true; }
-            }
-
-            let spd = getDist(0, 0, player.vx, player.vy), movingDir = Math.atan2(player.vx, -player.vy);
-            let angleDiff = Math.abs(player.angle - movingDir); if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
-
-            let actEl = document.getElementById('actionText'); player.isDrifting = false; 
-
-            if (audioUnlocked && engineGain) {
-                let enginePitch = 30 + (spd / player.maxSpeed) * 80; engineOsc.frequency.setTargetAtTime(enginePitch, audioCtx.currentTime, 0.1);
-                engineGain.gain.setTargetAtTime(isAccelerating ? 0.08 : 0.02, audioCtx.currentTime, 0.1);
-            }
-
-            if (angleDiff > 0.6 && spd > 180) {
-                player.isDrifting = true; if(actEl) actEl.innerHTML = "<span class='drift'>🔥 DRIFT!</span>";
-                let cosA = Math.cos(player.angle), sinA = Math.sin(player.angle);
-                skidMarks.push({ x: player.x + 12 - (8*cosA - 15*sinA), y: player.y + 18 - (8*sinA + 15*sinA), life: 2.0 });
-                player.vx -= player.vx * 1.2 * dt; player.vy -= player.vy * 1.2 * dt;
-                if (audioUnlocked && driftGain) driftGain.gain.setTargetAtTime(0.1, audioCtx.currentTime, 0.05);
-            } else { 
-                if(actEl) actEl.innerHTML = ""; player.vx -= player.vx * 4.5 * dt; player.vy -= player.vy * 4.5 * dt; 
-                if (audioUnlocked && driftGain) driftGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
-            }
-
-            if (spd > player.maxSpeed) { player.vx = (player.vx/spd)*player.maxSpeed; player.vy = (player.vy/spd)*player.maxSpeed; }
-            player.x += player.vx * dt; player.y += player.vy * dt;
-
-            let minPX = arenaWalls[2].x + 20, maxPX = arenaWalls[3].x - 20 - player.width;
-            let minPY = arenaWalls[0].y + 20, maxPY = arenaWalls[1].y - 20 - player.height;
-            if (player.x < minPX) player.x = minPX; if (player.x > maxPX) player.x = maxPX;
-            if (player.y < minPY) player.y = minPY; if (player.y > maxPY) player.y = maxPY;
-
-            if (performance.now() - player.lastSync > 30) { sendNetworkUpdate(); player.lastSync = performance.now(); }
-
+            // ATUALIZANDO OS OUTROS JOGADORES NA REDE (ISSO QUE FAZ O MULTIPLAYER FUNCIONAR)
             let now = Date.now();
             for (let id in remotePlayers) { if (now - remotePlayers[id].lastUpdate > 3000) delete remotePlayers[id]; }
             document.getElementById('playersOnlineText').innerText = 1 + Object.keys(remotePlayers).length;
@@ -826,36 +753,125 @@
                 if (rp.drifting) { let cosA = Math.cos(rp.angle), sinA = Math.sin(rp.angle); skidMarks.push({ x: rp.x + 12 - (8*cosA - 15*sinA), y: rp.y + 18 - (8*sinA + 15*sinA), life: 2.0 }); }
             }
 
-            for (let i = powerUps.length - 1; i >= 0; i--) {
-                let p = powerUps[i];
-                if (player.x < p.x+p.w && player.x+player.width > p.x && player.y < p.y+p.h && player.y+player.height > p.y) {
-                    if (p.type === 'life') { if (player.lives < player.maxLives) player.lives++; updateLivesUI(); playTone(400, 'sine', 0.2, 0.1, 800); }
-                    if (p.type === 'shield') { player.invulnerableTimer = 2.5; playTone(300, 'square', 0.2, 0.1, 600); } 
-                    powerUps.splice(i, 1);
-                    if (mqttClient && mqttClient.connected) { mqttClient.publish(salaId, JSON.stringify({ type: 'grab_powerup', pIndex: i })); }
-                }
-            }
+            for (let i = activeLasers.length - 1; i >= 0; i--) { activeLasers[i].timer -= dt; if (activeLasers[i].timer <= 0) activeLasers.splice(i, 1); }
+            for (let i = skidMarks.length - 1; i >= 0; i--) { skidMarks[i].life -= dt; if (skidMarks[i].life <= 0) skidMarks.splice(i, 1); }
+            for (let i = hitEffects.length - 1; i >= 0; i--) { hitEffects[i].timer -= dt; if (hitEffects[i].timer <= 0) hitEffects.splice(i, 1); }
 
-            if (turretUnlocked) {
-                if (turretCooldown > 0) { turretCooldown -= dt; } else {
-                    if (chaosBalls.length > 0) {
-                        let closestIdx = 0; let minDist = getDist(chaosBalls[0].x, chaosBalls[0].y, player.x, player.y);
-                        for(let i=1; i<chaosBalls.length; i++) {
-                            let d = getDist(chaosBalls[i].x, chaosBalls[i].y, player.x, player.y);
-                            if(d < minDist) { minDist = d; closestIdx = i; }
+            // ======= AQUI É O SEGREDO DO BUG CORRIGIDO =======
+            // O código acima rola pra todo mundo, mantendo a tela atualizada com o seu amigo e com as bolas.
+            // O código abaixo SÓ rola se você estiver vivo. Se estiver morto, ignora.
+            
+            if (!isSpectating) {
+                let carCenterX = player.x + player.width / 2; 
+                let carCenterY = player.y + player.height / 2;
+                let currentSpeed = getDist(0, 0, player.vx, player.vy);
+
+                let bcElem = document.getElementById('ballsCount');
+                if(bcElem) bcElem.innerText = chaosBalls.length;
+
+                for (let i = chaosBalls.length - 1; i >= 0; i--) {
+                    let b = chaosBalls[i];
+                    let distToCar = getDist(carCenterX, carCenterY, b.x, b.y);
+
+                    let isMovingFast = currentSpeed > 40;
+                    let meleeRange = (isMovingFast && unlockedMeleeCount > 0) ? (15 + (unlockedMeleeCount * 4)) : 0;
+                    if (meleeRange > 0 && distToCar < b.radius + meleeRange) {
+                        let pushAngle = Math.atan2(b.y - carCenterY, b.x - carCenterX);
+                        b.vx = Math.cos(pushAngle) * 250;
+                        b.vy = Math.sin(pushAngle) * 250;
+                    }
+
+                    if (distToCar < b.radius + 15) {
+                        if (player.invulnerableTimer <= 0) {
+                            player.lives--; updateLivesUI(); shake(0.4, 15); player.invulnerableTimer = 1.2;
+                            hitEffects.push({ x: b.x, y: b.y, timer: 0.2, radius: 20 }); playTone(150, 'sawtooth', 0.2, 0.15, 50);
+                            if (player.lives <= 0) {
+                                handlePlayerDeathSafe();
+                            }
                         }
-                        let target = chaosBalls[closestIdx];
-                        activeLasers.push({ x1: player.x+12, y1: player.y+18, x2: target.x, y2: target.y, timer: 0.15 });
-                        playTone(800, 'square', 0.2, 0.2, 200); target.hp--; let destroyed = false;
-                        if (target.hp <= 0) { chaosBalls.splice(closestIdx, 1); score += 500; destroyed = true; }
-                        if (mqttClient && mqttClient.connected) { mqttClient.publish(salaId, JSON.stringify({ type: 'turret_fire_net', targetIdx: closestIdx, hp: target.hp, destroyed: destroyed, x1: player.x+12, y1: player.y+18, x2: target.x, y2: target.y })); }
-                        turretCooldown = 12; shake(0.1, 4); 
+                        let anglePush = Math.atan2(b.y - carCenterY, b.x - carCenterX);
+                        b.vx = Math.cos(anglePush) * 350; b.vy = Math.sin(anglePush) * 350;
+                    }
+                }
+
+                let nextEventEl = document.getElementById('nextEventText'); if(nextEventEl) nextEventEl.innerText = Math.ceil(Math.max(0, nextEventInterval - randomEventTimer)) + "s";
+                if (player.invulnerableTimer > 0) player.invulnerableTimer -= dt;
+                if (player.chatTimer > 0) player.chatTimer -= dt;
+                if (shakeTime > 0) shakeTime -= dt;
+
+                let ix = 0, iy = 0, isAccelerating = false;
+                if (keys.w) { iy -= 1; isAccelerating = true; } if (keys.s) { iy += 1; isAccelerating = true; }
+                if (keys.a) { ix -= 1; isAccelerating = true; } if (keys.d) { ix += 1; isAccelerating = true; }
+                
+                if (ix !== 0 || iy !== 0) {
+                    let len = getDist(0, 0, ix, iy); player.angle = Math.atan2(ix/len, -iy/len);
+                    player.vx += (ix/len) * player.accel * dt; player.vy += (iy/len) * player.accel * dt;
+                    isAccelerating = true;
+                } else if (touchTarget) {
+                    let dx = touchTarget.x - player.x, dy = touchTarget.y - player.y, distToTouch = getDist(0, 0, dx, dy);
+                    if (distToTouch > 10) { player.angle = Math.atan2(dx, -dy); player.vx += (dx/distToTouch) * player.accel * dt; player.vy += (dy/distToTouch) * player.accel * dt; isAccelerating = true; }
+                }
+
+                let spd = getDist(0, 0, player.vx, player.vy), movingDir = Math.atan2(player.vx, -player.vy);
+                let angleDiff = Math.abs(player.angle - movingDir); if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+                let actEl = document.getElementById('actionText'); player.isDrifting = false; 
+
+                if (audioUnlocked && engineGain) {
+                    let enginePitch = 30 + (spd / player.maxSpeed) * 80; engineOsc.frequency.setTargetAtTime(enginePitch, audioCtx.currentTime, 0.1);
+                    engineGain.gain.setTargetAtTime(isAccelerating ? 0.08 : 0.02, audioCtx.currentTime, 0.1);
+                }
+
+                if (angleDiff > 0.6 && spd > 180) {
+                    player.isDrifting = true; if(actEl) actEl.innerHTML = "<span class='drift'>🔥 DRIFT!</span>";
+                    let cosA = Math.cos(player.angle), sinA = Math.sin(player.angle);
+                    skidMarks.push({ x: player.x + 12 - (8*cosA - 15*sinA), y: player.y + 18 - (8*sinA + 15*sinA), life: 2.0 });
+                    player.vx -= player.vx * 1.2 * dt; player.vy -= player.vy * 1.2 * dt;
+                    if (audioUnlocked && driftGain) driftGain.gain.setTargetAtTime(0.1, audioCtx.currentTime, 0.05);
+                } else { 
+                    if(actEl) actEl.innerHTML = ""; player.vx -= player.vx * 4.5 * dt; player.vy -= player.vy * 4.5 * dt; 
+                    if (audioUnlocked && driftGain) driftGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                }
+
+                if (spd > player.maxSpeed) { player.vx = (player.vx/spd)*player.maxSpeed; player.vy = (player.vy/spd)*player.maxSpeed; }
+                player.x += player.vx * dt; player.y += player.vy * dt;
+
+                let minPX = arenaWalls[2].x + 20, maxPX = arenaWalls[3].x - 20 - player.width;
+                let minPY = arenaWalls[0].y + 20, maxPY = arenaWalls[1].y - 20 - player.height;
+                if (player.x < minPX) player.x = minPX; if (player.x > maxPX) player.x = maxPX;
+                if (player.y < minPY) player.y = minPY; if (player.y > maxPY) player.y = maxPY;
+
+                if (performance.now() - player.lastSync > 30) { sendNetworkUpdate(); player.lastSync = performance.now(); }
+
+                for (let i = powerUps.length - 1; i >= 0; i--) {
+                    let p = powerUps[i];
+                    if (player.x < p.x+p.w && player.x+player.width > p.x && player.y < p.y+p.h && player.y+player.height > p.y) {
+                        if (p.type === 'life') { if (player.lives < player.maxLives) player.lives++; updateLivesUI(); playTone(400, 'sine', 0.2, 0.1, 800); }
+                        if (p.type === 'shield') { player.invulnerableTimer = 2.5; playTone(300, 'square', 0.2, 0.1, 600); } 
+                        powerUps.splice(i, 1);
+                        if (mqttClient && mqttClient.connected) { mqttClient.publish(salaId, JSON.stringify({ type: 'grab_powerup', pIndex: i })); }
+                    }
+                }
+
+                if (turretUnlocked) {
+                    if (turretCooldown > 0) { turretCooldown -= dt; } else {
+                        if (chaosBalls.length > 0) {
+                            let closestIdx = 0; let minDist = getDist(chaosBalls[0].x, chaosBalls[0].y, player.x, player.y);
+                            for(let i=1; i<chaosBalls.length; i++) {
+                                let d = getDist(chaosBalls[i].x, chaosBalls[i].y, player.x, player.y);
+                                if(d < minDist) { minDist = d; closestIdx = i; }
+                            }
+                            let target = chaosBalls[closestIdx];
+                            activeLasers.push({ x1: player.x+12, y1: player.y+18, x2: target.x, y2: target.y, timer: 0.15 });
+                            playTone(800, 'square', 0.2, 0.2, 200); target.hp--; let destroyed = false;
+                            if (target.hp <= 0) { chaosBalls.splice(closestIdx, 1); score += 500; destroyed = true; }
+                            if (mqttClient && mqttClient.connected) { mqttClient.publish(salaId, JSON.stringify({ type: 'turret_fire_net', targetIdx: closestIdx, hp: target.hp, destroyed: destroyed, x1: player.x+12, y1: player.y+18, x2: target.x, y2: target.y })); }
+                            turretCooldown = 12; shake(0.1, 4); 
+                        }
                     }
                 }
             }
-
-            for (let i = skidMarks.length - 1; i >= 0; i--) { skidMarks[i].life -= dt; if (skidMarks[i].life <= 0) skidMarks.splice(i, 1); }
-            for (let i = hitEffects.length - 1; i >= 0; i--) { hitEffects[i].timer -= dt; if (hitEffects[i].timer <= 0) hitEffects.splice(i, 1); }
+            // ======= FIM DA CORREÇÃO DE MORTE =======
 
             let min = Math.floor(survivalTime/60); let sec = Math.floor(survivalTime%60);
             document.getElementById('timeText').innerText = min + ":" + (sec < 10 ? "0"+sec : sec);
