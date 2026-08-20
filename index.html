@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Arena Sobrevivência: V41 (Definitiva)</title>
+    <title>Arena Sobrevivência: V42 (Definitiva Completa)</title>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
@@ -63,12 +63,28 @@
             box-shadow: 4px 4px 0 #145a32; cursor: pointer; text-transform: uppercase;
         }
         #mobileChatBtn:active { transform: translate(3px, 3px); box-shadow: 0 0 0 #000; }
+
+        /* Estilos Novos para Revive e Espectador */
+        #reviveBtn {
+            position: absolute; bottom: 25px; right: 25px; z-index: 40;
+            background-color: #2ecc71; color: white; font-family: 'Press Start 2P', monospace;
+            font-size: 10px; padding: 14px 18px; border: 3px solid #fff;
+            box-shadow: 4px 4px 0 #145a32; cursor: pointer; text-transform: uppercase; display: none;
+        }
+        #reviveBtn:active { transform: translate(3px, 3px); box-shadow: 0 0 0 #000; }
+        #spectatorOverlay {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 14px; color: #e74c3c; text-shadow: 3px 3px 0 #000; z-index: 35; display: none; pointer-events: none;
+            border: 3px dashed #e74c3c; background: rgba(0,0,0,0.8); padding: 15px 30px; text-align: center;
+        }
     </style>
 </head>
 <body>
 
     <button id="mobileGarageBtn" onclick="uiClick(); toggleGarage()">⚙️ Garagem</button>
     <button id="mobileChatBtn" onclick="uiClick(); openChat()">💬 Chat</button>
+    <button id="reviveBtn" onclick="uiClick(); tryReviveFriend()">❤️ REVIVER AMIGO (1000 pts)</button>
+    <div id="spectatorOverlay">👀 MODO ESPECTADOR<br><span style="font-size:9px; color:#fff;">Seu amigo está jogando</span></div>
 
     <div id="eventBanner">⚠️ EVENTO: <span id="eventNameText">NENHUM</span></div>
     <div id="chatBanner"></div>
@@ -79,7 +95,7 @@
         <p>Vidas: <span id="livesText" style="color: #2ecc71; font-weight: bold;">❤️ 3</span></p>
         <p>Bolas: <span id="ballsCount" style="color: #e74c3c; font-weight: bold;">1</span></p>
         <p>Jogadores: <span id="playersOnlineText" style="color: #3498db;">1</span></p>
-        <p>Sistema: <span class="coadmin-tag" id="hostStatus">V41 (DEFINITIVA)</span></p>
+        <p>Sistema: <span class="coadmin-tag" id="hostStatus">V42 (DEFINITIVA)</span></p>
         <p>Arsenal Ativo: <span id="unlockProgress" style="color: #f39c12;">Nível 0/5</span></p>
         <p>Próx Evento: <span id="nextEventText" style="color: #00ffff;">15s</span></p>
         <p id="actionText"></p> 
@@ -140,6 +156,9 @@
 
         let unlockedMeleeCount = 0; 
         let meleeUnlockProgress = 0; 
+
+        // Variáveis de Espectador e Revive seguras
+        let isSpectating = false;
 
         function isHost() {
             let allIds = [myId].concat(Object.keys(remotePlayers));
@@ -241,6 +260,23 @@
                                 setTimeout(() => { document.getElementById('gameOverScreen').style.display = 'flex'; }, 1000);
                             }
                         }
+                        // MQTT para Espectador e Revive com segurança
+                        else if (data.type === 'player_dead') {
+                            if (!isSpectating && Object.keys(remotePlayers).length > 0) {
+                                document.getElementById('reviveBtn').style.display = 'block';
+                            }
+                        }
+                        else if (data.type === 'revive_player') {
+                            if (isSpectating) {
+                                isSpectating = false;
+                                player.lives = 3;
+                                updateLivesUI();
+                                gameState = 'playing';
+                                document.getElementById('spectatorOverlay').style.display = 'none';
+                                playTone(900, 'sine', 0.4, 0.3, 1600);
+                            }
+                            document.getElementById('reviveBtn').style.display = 'none';
+                        }
                     } catch(e) {}
                 });
             } catch(e) {}
@@ -248,7 +284,7 @@
         connectMultiplayer();
 
         function sendNetworkUpdate() {
-            if (mqttClient && mqttClient.connected && gameState === 'playing') {
+            if (mqttClient && mqttClient.connected && gameState === 'playing' && !isSpectating) {
                 let packet = JSON.stringify({ 
                     type: 'move', id: myId, x: player.x, y: player.y, 
                     vx: player.vx, vy: player.vy,
@@ -304,7 +340,7 @@
 
         let touchTarget = null;
         function handleTouch(e) {
-            if (e.target && (e.target.id === 'mobileGarageBtn' || e.target.id === 'mobileChatBtn')) return;
+            if (e.target && (e.target.id === 'mobileGarageBtn' || e.target.id === 'mobileChatBtn' || e.target.id === 'reviveBtn')) return;
             let rect = canvas.getBoundingClientRect();
             let clientX = e.clientX || (e.touches ? e.touches[0].clientX : 0);
             let clientY = e.clientY || (e.touches ? e.touches[0].clientY : 0);
@@ -353,7 +389,7 @@
         function changePlayerColor(hex) { player.color = hex; player.sprite = preRenderPixelArt(hex); }
         
         function toggleGarage() {
-            if (gameState === 'playing') { 
+            if (gameState === 'playing' && !isSpectating) { 
                 gameState = 'garage'; document.getElementById('garageScreen').style.display = 'flex'; updateGarageUI();
             } else if (gameState === 'garage') { 
                 gameState = 'playing'; document.getElementById('garageScreen').style.display = 'none'; lastTime = performance.now(); 
@@ -486,13 +522,48 @@
             }
             for (let t of targets) {
                 lightningStrikes.push({ x: t.x, y: t.y, timer: 0.3 });
-                if (t.isMe && player.invulnerableTimer <= 0) {
+                if (t.isMe && player.invulnerableTimer <= 0 && !isSpectating) {
                     player.lives--; updateLivesUI(); shake(0.5, 20); player.invulnerableTimer = 1.5;
                     playTone(100, 'sawtooth', 0.4, 0.3, 30);
-                    if (player.lives <= 0) triggerGameOver();
+                    if (player.lives <= 0) handlePlayerDeathSafe();
                 }
             }
             playTone(300, 'square', 0.3, 0.2, 50);
+        }
+
+        // Função de morte totalmente segura que não crasha
+        function handlePlayerDeathSafe() {
+            if (isSpectating) return;
+            
+            let hasOnlineFriend = (mqttClient && mqttClient.connected && Object.keys(remotePlayers).length > 0);
+            
+            if (hasOnlineFriend) {
+                isSpectating = true;
+                document.getElementById('spectatorOverlay').style.display = 'block';
+                try {
+                    mqttClient.publish(salaId, JSON.stringify({ type: 'player_dead', id: myId }));
+                } catch(e) {}
+            } else {
+                gameState = 'dead';
+                if (mqttClient && mqttClient.connected) { 
+                    try { mqttClient.publish(salaId, JSON.stringify({ type: 'gameover', id: myId })); } catch(e) {}
+                }
+                document.getElementById('finalTime').innerText = document.getElementById('timeText').innerText;
+                document.getElementById('finalScore').innerText = Math.floor(score);
+                if (score > highScore) { highScore = Math.floor(score); localStorage.setItem('arenaSurvivalHighScore', highScore); }
+                document.getElementById('bestScore').innerText = highScore;
+                setTimeout(() => { document.getElementById('gameOverScreen').style.display = 'flex'; }, 1000);
+            }
+        }
+
+        function tryReviveFriend() {
+            if (score >= 1000) {
+                score -= 1000;
+                document.getElementById('reviveBtn').style.display = 'none';
+                if (mqttClient && mqttClient.connected) {
+                    mqttClient.publish(salaId, JSON.stringify({ type: 'revive_player', id: myId }));
+                }
+            }
         }
 
         function triggerGameOver() {
@@ -541,8 +612,10 @@
         function restartGame() {
             document.getElementById('gameOverScreen').style.display = 'none';
             document.getElementById('garageScreen').style.display = 'none';
+            document.getElementById('spectatorOverlay').style.display = 'none';
+            document.getElementById('reviveBtn').style.display = 'none';
             player.lives = 3; player.maxSpeed = player.baseMaxSpeed; player.accel = player.baseAccel; updateLivesUI();
-            gameState = 'playing'; score = 0; survivalTime = 0; 
+            gameState = 'playing'; isSpectating = false; score = 0; survivalTime = 0; 
             chaosBalls = []; powerUps = []; skidMarks = []; hitEffects = []; activeLasers = []; lightningStrikes = [];
             ballFixedTimer = 0; randomEventTimer = 0; turretUnlocked = true; turretCooldown = 0;
             unlockedMeleeCount = 0; meleeUnlockProgress = 0; updateItemBarUI();
@@ -611,7 +684,7 @@
                             let d = getDist(b.x, b.y, pObj.x, pObj.y);
                             if (d < 240 && d > 10) {
                                 let pullAng = Math.atan2(b.y - pObj.y, b.x - pObj.x);
-                                if (pObj.isPlayer) {
+                                if (pObj.isPlayer && !isSpectating) {
                                     player.vx += Math.cos(pullAng) * 380 * dt;
                                     player.vy += Math.sin(pullAng) * 380 * dt;
                                 }
@@ -687,6 +760,9 @@
                 for (let i = 0; i < powerUps.length; i++) { powerUps[i].x += powerUps[i].vx * dt; powerUps[i].y += powerUps[i].vy * dt; }
             }
 
+            // SE ESTIVER ESPECTANDO, PULA O CONTROLE DO CARRO
+            if (isSpectating) return;
+
             let carCenterX = player.x + player.width / 2; 
             let carCenterY = player.y + player.height / 2;
             let currentSpeed = getDist(0, 0, player.vx, player.vy);
@@ -710,11 +786,12 @@
                     if (player.invulnerableTimer <= 0) {
                         player.lives--; updateLivesUI(); shake(0.4, 15); player.invulnerableTimer = 1.2;
                         hitEffects.push({ x: b.x, y: b.y, timer: 0.2, radius: 20 }); playTone(150, 'sawtooth', 0.2, 0.15, 50);
-                        if (player.lives <= 0) triggerGameOver();
+                        if (player.lives <= 0) {
+                            handlePlayerDeathSafe();
+                        }
                     }
                     let anglePush = Math.atan2(b.y - carCenterY, b.x - carCenterX);
                     b.vx = Math.cos(anglePush) * 350; b.vy = Math.sin(anglePush) * 350;
-                    if (!isHost() && mqttClient && mqttClient.connected) { mqttClient.publish(salaId, JSON.stringify({ type: 'sync_bola', bIndex: i, x: b.x, y: b.y, vx: b.vx, vy: b.vy })); }
                 }
             }
 
@@ -872,7 +949,7 @@
                 }
             }
 
-            if (gameState === 'playing' && (player.invulnerableTimer <= 0 || Math.floor(player.invulnerableTimer*15)%2 === 0)) {
+            if (gameState === 'playing' && !isSpectating && (player.invulnerableTimer <= 0 || Math.floor(player.invulnerableTimer*15)%2 === 0)) {
                 ctx.save(); ctx.translate(player.x + 12, player.y + 18); player.angle = player.angle || 0; ctx.rotate(player.angle); ctx.drawImage(player.sprite, -12, -18);
                 ctx.fillStyle = '#7f8c8d'; ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill(); 
                 ctx.fillStyle = '#2ecc71'; ctx.fillRect(-1.5, -9, 3, 9);
