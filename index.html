@@ -45,8 +45,6 @@
         button:disabled { background-color: #555; border-color: #777; box-shadow: 4px 4px 0 #222; cursor: not-allowed; }
         #gameOverScreen button { background-color: #e74c3c; box-shadow: 4px 4px 0 #78281f; }
         .drift { color: #f39c12; font-style: italic; font-weight: bold; text-shadow: 2px 2px 0 #d35400; }
-        .turret-ready { color: #2ecc71; font-weight: bold; }
-        .turret-cd { color: #e74c3c; }
         .coadmin-tag { color: #2ecc71; text-shadow: 1px 1px 0 #000; font-size: 8px; }
         .upgrade-row { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; font-size: 9px; background: #111; padding: 8px; border: 2px solid #444; }
         
@@ -318,7 +316,6 @@
         window.addEventListener('touchmove', handleTouch);
         window.addEventListener('touchstart', handleTouch);
         
-        // CORREÇÃO MOUSE/TOQUE: Soltou o botão ou o dedo, o carro para de ir sozinho
         window.addEventListener('mouseup', () => { touchTarget = null; });
         window.addEventListener('touchend', () => { touchTarget = null; });
 
@@ -578,7 +575,8 @@
 
             if (isHost()) {
                 ballFixedTimer += dt; 
-                if (ballFixedTimer >= 15) { 
+                // TIMER DE BOLAS GARANTIDAS A CADA 30 SEGUNDOS
+                if (ballFixedTimer >= 30) { 
                     ballFixedTimer = 0; 
                     spawnBall(); 
                 }
