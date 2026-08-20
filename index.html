@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Arena Sobrevivência: V41 (Definitiva)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body { 
+            margin: 0; padding: 0; background-color: #000; overflow: hidden; touch-action: none; 
+            color: white; font-family: 'Press Start 2P', monospace; user-select: none; 
+            display: flex; justify-content: center; align-items: center; width: 100vw; height: 100vh;
+        }
+        canvas { 
+            background-color: #000; image-rendering: pixelated; 
+            max-width: 100vw; max-height: 100vh; 
+            width: auto; height: auto;
+            object-fit: contain;
+        }
+        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; text-shadow: 2px 2px 0 #000; z-index: 5; font-size: 9px; line-height: 1.6; }
+        #eventBanner { 
+            position: absolute; top: 15px; left: 50%; transform: translateX(-50%); 
+            background: rgba(192, 57, 43, 0.95); border: 3px solid #fff; padding: 10px 20px; 
+            font-size: 10px; color: #f1c40f; text-align: center; z-index: 10; display: none;
+            box-shadow: 4px 4px 0 #000; text-shadow: 2px 2px 0 #000;
+        }
+        #chatBanner {
+            position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+            display: none; padding: 8px 16px; border: 3px solid #fff; font-size: 9px; 
+            z-index: 12; text-shadow: 2px 2px 0 #000; box-shadow: 4px 4px 0 #000; text-align: center;
+        }
+        
+        #itemBar { display: none; }
+
+        #gameOverScreen, #garageScreen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 20; text-align: center; }
+        #gameOverScreen { background: rgba(0, 0, 0, 0.85); z-index: 30; } #garageScreen { background: rgba(20, 20, 30, 0.95); z-index: 25; pointer-events: auto; }
+        .pixel-box { background: #222; padding: 25px; border: 4px solid #fff; box-shadow: 8px 8px 0 #000; max-width: 450px; width: 90%; }
+        #gameOverScreen h1 { color: #e74c3c; font-size: 24px; margin-bottom: 20px; text-shadow: 4px 4px 0 #78281f; }
+        #gameOverScreen p { font-size: 12px; margin: 15px 0; color: #fff; }
+        #gameOverScreen .record { color: #f1c40f; text-shadow: 2px 2px 0 #7d6608; }
+        #garageScreen h1 { color: #3498db; font-size: 20px; margin-bottom: 15px; text-shadow: 4px 4px 0 #1b4f72; }
+        button { margin-top: 15px; padding: 12px 18px; font-size: 10px; font-family: inherit; color: white; background-color: #3498db; border: 4px solid #fff; cursor: pointer; text-transform: uppercase; box-shadow: 4px 4px 0 #1b4f72; transition: transform 0.1s; }
+        button:active { transform: translate(4px, 4px); box-shadow: 0 0 0 #000; }
+        button:disabled { background-color: #555; border-color: #777; box-shadow: 4px 4px 0 #222; cursor: not-allowed; }
+        #gameOverScreen button { background-color: #e74c3c; box-shadow: 4px 4px 0 #78281f; }
+        .drift { color: #f39c12; font-style: italic; font-weight: bold; text-shadow: 2px 2px 0 #d35400; }
+        .turret-ready { color: #2ecc71; font-weight: bold; }
+        .turret-cd { color: #e74c3c; }
+        .coadmin-tag { color: #2ecc71; text-shadow: 1px 1px 0 #000; font-size: 8px; }
+        .upgrade-row { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; font-size: 9px; background: #111; padding: 8px; border: 2px solid #444; }
+        
+        #mobileGarageBtn {
+            position: absolute; top: 15px; right: 15px; z-index: 10;
+            background-color: #f39c12; color: white; font-family: 'Press Start 2P', monospace;
+            font-size: 10px; padding: 12px 16px; border: 3px solid #fff;
+            box-shadow: 4px 4px 0 #b9770e; cursor: pointer; text-transform: uppercase;
+        }
+        #mobileGarageBtn:active { transform: translate(3px, 3px); box-shadow: 0 0 0 #000; }
+
+        #mobileChatBtn {
+            position: absolute; top: 68px; right: 15px; z-index: 10;
+            background-color: #2ecc71; color: white; font-family: 'Press Start 2P', monospace;
+            font-size: 10px; padding: 12px 16px; border: 3px solid #fff;
+            box-shadow: 4px 4px 0 #145a32; cursor: pointer; text-transform: uppercase;
+        }
+        #mobileChatBtn:active { transform: translate(3px, 3px); box-shadow: 0 0 0 #000; }
+    </style>
+</head>
+<body>
+
+    <button id="mobileGarageBtn" onclick="uiClick(); toggleGarage()">⚙️ Garagem</button>
+    <button id="mobileChatBtn" onclick="uiClick(); openChat()">💬 Chat</button>
+
+    <div id="eventBanner">⚠️ EVENTO: <span id="eventNameText">NENHUM</span></div>
+    <div id="chatBanner"></div>
+
+    <div id="ui">
+        <h2>Tempo: <span id="timeText">0:00</span></h2>
+        <p>Pontos (Dinheiro): <span id="scoreText" style="color: #f1c40f;">0</span></p>
+        <p>Vidas: <span id="livesText" style="color: #2ecc71; font-weight: bold;">❤️ 3</span></p>
+        <p>Bolas: <span id="ballsCount" style="color: #e74c3c; font-weight: bold;">1</span></p>
+        <p>Jogadores: <span id="playersOnlineText" style="color: #3498db;">1</span></p>
+        <p>Sistema: <span class="coadmin-tag" id="hostStatus">V41 (DEFINITIVA)</span></p>
+        <p>Arsenal Ativo: <span id="unlockProgress" style="color: #f39c12;">Nível 0/5</span></p>
+        <p>Próx Evento: <span id="nextEventText" style="color: #00ffff;">15s</span></p>
+        <p id="actionText"></p> 
+    </div>
+
+    <div id="gameOverScreen">
+        <div class="pixel-box">
+            <h1 id="gameOverTitle">FIM DA LINHA</h1>
+            <p>Sobreviveu: <span id="finalTime">0:00</span></p>
+            <p>Pontuação: <span id="finalScore">0</span></p>
+            <p class="record">Recorde: <span id="bestScore">0</span></p>
+            <button onclick="uiClick(); restartGame()">Jogar Novamente</button>
+        </div>
+    </div>
+
+    <div id="garageScreen">
+        <div class="pixel-box">
+            <h1>GARAGEM & UPGRADES</h1>
+            <div style="margin-bottom: 12px;">
+                <label style="font-size: 9px;">Cor do Carro:</label><br>
+                <input type="color" id="carColorPicker" value="#e74c3c" onchange="uiClick(); changePlayerColor(this.value)" style="margin-top: 5px;">
+            </div>
+
+            <div class="upgrade-row">
+                <span>Vidas Extras (Máx 5)<br><small id="livesUpgradeText">Atual: 3/5</small></span>
+                <button onclick="uiClick(); buyUpgrade('lives')" style="margin:0; padding:6px 10px; font-size:8px;">Comprar (300 pts)</button>
+            </div>
+
+            <div class="upgrade-row">
+                <span>Velocidade Máx (Máx Dobro)<br><small id="speedUpgradeText">Atual: 420</small></span>
+                <button onclick="uiClick(); buyUpgrade('speed')" style="margin:0; padding:6px 10px; font-size:8px;">Comprar (500 pts)</button>
+            </div>
+
+            <div class="upgrade-row">
+                <span>Aceleração Extra<br><small id="accelUpgradeText">Atual: 3500</small></span>
+                <button onclick="uiClick(); buyUpgrade('accel')" style="margin:0; padding:6px 10px; font-size:8px;">Comprar (400 pts)</button>
+            </div>
+
+            <button onclick="uiClick(); toggleGarage()" style="background-color: #2ecc71; box-shadow: 4px 4px 0 #145a32; width: 100%;">Voltar ao Jogo</button>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+
+        const WORLD_WIDTH = 900;
+        const WORLD_HEIGHT = 600;
+        canvas.width = WORLD_WIDTH;
+        canvas.height = WORLD_HEIGHT;
+
+        let myId = 'coadmin_' + Math.floor(Math.random() * 999999);
+        let remotePlayers = {}; 
+        let mqttClient = null;
+        let salaId = 'arena_coadmin_v41_final'; 
+
+        let unlockedMeleeCount = 0; 
+        let meleeUnlockProgress = 0; 
+
+        function isHost() {
+            let allIds = [myId].concat(Object.keys(remotePlayers));
+            allIds.sort();
+            return allIds[0] === myId;
+        }
+
+        function openChat() {
+            let msg = prompt("Digite sua mensagem para o chat:");
+            if (msg && msg.trim() !== "") {
+                sendChat(msg.trim());
+            }
+        }
+
+        function sendChat(text) {
+            player.chatMessage = text;
+            player.chatTimer = 4.0;
+            showChatBanner(text, player.color);
+            if (mqttClient && mqttClient.connected) {
+                mqttClient.publish(salaId, JSON.stringify({ type: 'chat', id: myId, text: text, color: player.color }));
+            }
+        }
+
+        function showChatBanner(text, color) {
+            let banner = document.getElementById('chatBanner');
+            banner.innerText = text;
+            banner.style.backgroundColor = color;
+            banner.style.color = '#fff';
+            banner.style.display = 'block';
+            setTimeout(() => { banner.style.display = 'none'; }, 4000);
+        }
+
+        function connectMultiplayer() {
+            try {
+                let options = { clientId: myId + '_' + Date.now(), clean: true, connectTimeout: 5000 };
+                mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt', options);
+                
+                mqttClient.on('connect', () => { mqttClient.subscribe(salaId); });
+
+                mqttClient.on('message', (topic, message) => {
+                    try {
+                        let data = JSON.parse(message.toString());
+                        if (data.id === myId) return;
+
+                        if (data.type === 'world_state') {
+                            if (!isHost()) {
+                                chaosBalls = data.balls;
+                                powerUps = data.powerups;
+                                lightningStrikes = data.lightnings || [];
+                                activeEventName = data.eventName || "";
+                                unlockedMeleeCount = data.unlockedMelee || 0;
+                                meleeUnlockProgress = data.meleeProgress || 0;
+                                updateItemBarUI();
+                                if (activeEventName) showEventBanner(activeEventName);
+                                let bc = document.getElementById('ballsCount'); if(bc) bc.innerText = chaosBalls.length;
+                            }
+                        }
+                        else if (data.type === 'chat') {
+                            if (remotePlayers[data.id]) {
+                                remotePlayers[data.id].chatMessage = data.text;
+                                remotePlayers[data.id].chatTimer = 4.0;
+                            }
+                            showChatBanner(data.text, data.color || '#3498db');
+                        }
+                        else if (data.type === 'grab_powerup') {
+                            if (powerUps[data.pIndex]) powerUps.splice(data.pIndex, 1);
+                        }
+                        else if (data.type === 'turret_fire_net') {
+                            activeLasers.push({ x1: data.x1, y1: data.y1, x2: data.x2, y2: data.y2, timer: 0.15 });
+                            playTone(800, 'square', 0.2, 0.2, 200);
+                            if (chaosBalls[data.targetIdx]) {
+                                chaosBalls[data.targetIdx].hp = data.hp;
+                                if (data.destroyed) chaosBalls.splice(data.targetIdx, 1);
+                            }
+                        }
+                        else if (data.type === 'move') {
+                            if (!remotePlayers[data.id]) {
+                                remotePlayers[data.id] = { 
+                                    x: data.x, y: data.y, targetX: data.x, targetY: data.y, 
+                                    vx: data.vx || 0, vy: data.vy || 0,
+                                    angle: data.angle, targetAngle: data.angle, drifting: data.drifting,
+                                    color: data.color || '#3498db', 
+                                    sprite: preRenderPixelArt(data.color || '#3498db'), lastUpdate: Date.now() 
+                                };
+                            } else {
+                                remotePlayers[data.id].targetX = data.x; 
+                                remotePlayers[data.id].targetY = data.y;
+                                remotePlayers[data.id].vx = data.vx || 0;
+                                remotePlayers[data.id].vy = data.vy || 0;
+                                remotePlayers[data.id].targetAngle = data.angle; 
+                                remotePlayers[data.id].drifting = data.drifting; 
+                                remotePlayers[data.id].lastUpdate = Date.now();
+                            }
+                        }
+                        else if (data.type === 'gameover') {
+                            if (gameState === 'playing' || gameState === 'garage') {
+                                gameState = 'dead'; player.lives = 0; updateLivesUI();
+                                document.getElementById('gameOverTitle').innerText = "SEU AMIGO BATEU AS BOTAS!";
+                                setTimeout(() => { document.getElementById('gameOverScreen').style.display = 'flex'; }, 1000);
+                            }
+                        }
+                    } catch(e) {}
+                });
+            } catch(e) {}
+        }
+        connectMultiplayer();
+
+        function sendNetworkUpdate() {
+            if (mqttClient && mqttClient.connected && gameState === 'playing') {
+                let packet = JSON.stringify({ 
+                    type: 'move', id: myId, x: player.x, y: player.y, 
+                    vx: player.vx, vy: player.vy,
+                    angle: player.angle, color: player.color, drifting: player.isDrifting 
+                });
+                mqttClient.publish(salaId, packet);
+            }
+        }
+
+        let audioCtx = null; let audioUnlocked = false;
+        let engineOsc, engineGain, driftOsc, driftGain;
+        let lastBounceWallSound = 0, lastBounceBallSound = 0;
+
+        function initAudio() {
+            if (audioUnlocked) return;
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if(audioCtx.state === 'suspended') audioCtx.resume();
+                audioUnlocked = true;
+                
+                engineOsc = audioCtx.createOscillator(); engineGain = audioCtx.createGain();
+                engineOsc.type = 'sawtooth'; engineOsc.frequency.value = 40; engineGain.gain.value = 0.0;
+                engineOsc.connect(engineGain); engineGain.connect(audioCtx.destination); engineOsc.start();
+                
+                driftOsc = audioCtx.createOscillator(); driftGain = audioCtx.createGain();
+                driftOsc.type = 'sawtooth'; driftOsc.frequency.value = 80; driftGain.gain.value = 0.0;
+                driftOsc.connect(driftGain); driftGain.connect(audioCtx.destination); driftOsc.start();
+            } catch (err) {}
+        }
+        window.addEventListener('click', initAudio); 
+        window.addEventListener('keydown', initAudio); 
+        window.addEventListener('touchstart', initAudio);
+
+        function playTone(freq, type, duration, vol=0.1, endFreq=null) {
+            if (!audioUnlocked || !audioCtx) return;
+            try {
+                if(audioCtx.state === 'suspended') audioCtx.resume();
+                let osc = audioCtx.createOscillator(); let gain = audioCtx.createGain();
+                osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                if (endFreq) osc.frequency.exponentialRampToValueAtTime(Math.max(1, endFreq), audioCtx.currentTime + duration);
+                gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+                osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {}
+        }
+        function uiClick() { initAudio(); playTone(800, 'sine', 0.1, 0.1, 400); }
+
+        const keys = { w: false, a: false, s: false, d: false };
+        window.addEventListener('keydown', e => { 
+            let k = e.key.toLowerCase(); if (e.key === 'Escape') { uiClick(); toggleGarage(); return; }
+            if (keys.hasOwnProperty(k)) keys[k] = true; 
+        });
+        window.addEventListener('keyup', e => { let k = e.key.toLowerCase(); if (keys.hasOwnProperty(k)) keys[k] = false; });
+
+        let touchTarget = null;
+        function handleTouch(e) {
+            if (e.target && (e.target.id === 'mobileGarageBtn' || e.target.id === 'mobileChatBtn')) return;
+            let rect = canvas.getBoundingClientRect();
+            let clientX = e.clientX || (e.touches ? e.touches[0].clientX : 0);
+            let clientY = e.clientY || (e.touches ? e.touches[0].clientY : 0);
+            let scaleX = WORLD_WIDTH / rect.width;
+            let scaleY = WORLD_HEIGHT / rect.height;
+            touchTarget = { x: (clientX - rect.left) * scaleX - 12, y: (clientY - rect.top) * scaleY - 18 };
+        }
+        window.addEventListener('mousemove', handleTouch);
+        window.addEventListener('touchmove', handleTouch);
+        window.addEventListener('touchstart', handleTouch);
+        
+        // CORREÇÃO MOUSE/TOQUE: Soltou o botão ou o dedo, o carro para de ir sozinho
+        window.addEventListener('mouseup', () => { touchTarget = null; });
+        window.addEventListener('touchend', () => { touchTarget = null; });
+
+        let highScore = 0; try { highScore = localStorage.getItem('arenaSurvivalHighScore') || 0; } catch(e) {}
+        function getDist(x1, y1, x2, y2) { return Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)); }
+        const randColor = () => "hsl(" + Math.floor(Math.random()*360) + ", 100%, 60%)";
+
+        function preRenderPixelArt(color, scale = 3) {
+            let design = [[0,2,1,1,2,0], [0,2,4,4,2,0], [0,0,3,3,0,0], [0,1,1,1,1,0], [0,1,1,1,1,0], [0,0,3,3,0,0], [0,2,1,1,2,0], [0,2,1,1,2,0], [0,0,1,1,0,0]];
+            const off = document.createElement('canvas'); off.width = design[0].length * scale; off.height = design.length * scale;
+            const offCtx = off.getContext('2d');
+            let palette = {1: color, 2:'#111', 3:'#85c1e9', 4:'#f1c40f'};
+            for (let r = 0; r < design.length; r++) {
+                for (let c = 0; c < design[r].length; c++) {
+                    if (design[r][c] !== 0) { offCtx.fillStyle = palette[design[r][c]]; offCtx.fillRect(c * scale, r * scale, scale, scale); }
+                }
+            } return off;
+        }
+
+        let gameState = 'playing', score = 0, survivalTime = 0, lastTime = 0, lastWorldSync = 0;
+        let arenaWalls = [], chaosBalls = [], powerUps = [], skidMarks = [], hitEffects = [], activeLasers = [], lightningStrikes = [];
+        let randomEventTimer = 0, nextEventInterval = 15, ballFixedTimer = 0;
+        let turretUnlocked = true, turretCooldown = 0;
+        let shakeTime = 0, shakeMag = 0;
+        let activeEventName = "", eventDisplayTimer = 0;
+
+        const player = { 
+            x: 0, y: 0, vx: 0, vy: 0, angle: 0, lives: 3, maxLives: 5, invulnerableTimer: 0, 
+            width: 24, height: 36, accel: 3500, baseAccel: 3500, maxSpeed: 420, baseMaxSpeed: 420, 
+            color: '#e74c3c', sprite: preRenderPixelArt('#e74c3c'), lastSync: 0, isDrifting: false,
+            chatMessage: "", chatTimer: 0
+        };
+
+        function updateLivesUI() { document.getElementById('livesText').innerText = "❤️ " + player.lives; }
+        function changePlayerColor(hex) { player.color = hex; player.sprite = preRenderPixelArt(hex); }
+        
+        function toggleGarage() {
+            if (gameState === 'playing') { 
+                gameState = 'garage'; document.getElementById('garageScreen').style.display = 'flex'; updateGarageUI();
+            } else if (gameState === 'garage') { 
+                gameState = 'playing'; document.getElementById('garageScreen').style.display = 'none'; lastTime = performance.now(); 
+            }
+        }
+
+        function updateGarageUI() {
+            document.getElementById('livesUpgradeText').innerText = `Atual: ${player.lives}/${player.maxLives}`;
+            document.getElementById('speedUpgradeText').innerText = `Atual: ${Math.round(player.maxSpeed)}`;
+            document.getElementById('accelUpgradeText').innerText = `Atual: ${Math.round(player.accel)}`;
+        }
+
+        function buyUpgrade(type) {
+            if (type === 'lives') {
+                if (score >= 300 && player.lives < player.maxLives) { score -= 300; player.lives++; updateLivesUI(); playTone(600, 'sine', 0.2, 0.2, 900); }
+            } else if (type === 'speed') {
+                if (score >= 500 && player.maxSpeed < player.baseMaxSpeed * 2) { score -= 500; player.maxSpeed += 70; playTone(700, 'sine', 0.2, 0.2, 1000); }
+            } else if (type === 'accel') {
+                if (score >= 400) { score -= 400; player.accel += 500; playTone(800, 'sine', 0.2, 0.2, 1100); }
+            }
+            updateGarageUI();
+        }
+
+        function shake(duration, mag) { shakeTime = duration; shakeMag = mag; }
+
+        function initArena() {
+            arenaWalls = [];
+            let w = WORLD_WIDTH - 80, h = WORLD_HEIGHT - 80, x = 40, y = 40;
+            arenaWalls.push({x: x, y: y, w: w, h: 20}); 
+            arenaWalls.push({x: x, y: y + h - 20, w: w, h: 20});
+            arenaWalls.push({x: x, y: y, w: 20, h: h}); 
+            arenaWalls.push({x: x + w - 20, y: y, w: 20, h: h});
+        }
+
+        function spawnBall(customType = null, customRadius = null, customHp = null, customSpeed = null) {
+            let speed = customSpeed || 250; let angle = Math.random() * Math.PI * 2;
+            let wx = arenaWalls[2].x + 40, wy = arenaWalls[0].y + 40;
+            let ww = arenaWalls[3].x - wx - 40, wh = arenaWalls[1].y - wy - 40;
+            let r = Math.random() * 100;
+            let ballType = customType || 'standard', radius = customRadius || 16, color = randColor(), hp = customHp || 3;
+
+            if (!customType) {
+                if (r < 35) { let id = Math.floor(Math.random() * 15) + 1; ballType = 'common_' + id; radius = 14 + Math.random() * 4; hp = 2 + Math.floor(Math.random() * 2); speed = 220 + Math.random() * 60; } 
+                else if (r < 60) { let id = Math.floor(Math.random() * 15) + 16; ballType = 'uncommon_' + id; radius = 12 + Math.random() * 6; hp = 3 + Math.floor(Math.random() * 2); speed = 260 + Math.random() * 80; } 
+                else if (r < 75) { let id = Math.floor(Math.random() * 10) + 31; ballType = 'rare_' + id; radius = (id % 2 === 0) ? 10 : 22; hp = 4; speed = 300; } 
+                else if (r < 85) { let id = Math.floor(Math.random() * 6) + 41; ballType = 'epic_' + id; radius = 15; color = '#e67e22'; hp = 5; speed = 340; } 
+                else if (r < 92) { let id = Math.floor(Math.random() * 3) + 47; ballType = 'legendary_' + id; radius = 18; color = '#ffffff'; hp = 6; speed = 380; } 
+                else if (r < 96) { ballType = 'ghost_stealth'; radius = 15; color = '#8e44ad'; hp = 4; speed = 290; } 
+                else if (r < 99) { ballType = 'magnet_ball'; radius = 20; color = '#2980b9'; hp = 7; speed = 200; } 
+                else { ballType = 'mythic_50'; radius = 26; color = '#ff00ff'; hp = 10; speed = 420; }
+            }
+
+            chaosBalls.push({ 
+                x: wx + Math.random() * ww, y: wy + Math.random() * wh, 
+                vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, 
+                radius: radius, color: color, hp: hp, ballType: ballType, timer: 0,
+                stealthTimer: 0, isVisible: true
+            });
+            let bc = document.getElementById('ballsCount'); if(bc) bc.innerText = chaosBalls.length;
+            playTone(150, 'sawtooth', 0.3, 0.1, 50);
+        }
+
+        function spawnPowerUp() {
+            let types = ['life', 'nitro', 'shield', 'bomb'];
+            let type = types[Math.floor(Math.random() * types.length)];
+            let angle = Math.random() * Math.PI * 2;
+            powerUps.push({ x: WORLD_WIDTH/2, y: WORLD_HEIGHT/2, vx: Math.cos(angle)*160, vy: Math.sin(angle)*160, w: 22, h: 22, type: type });
+        }
+
+        const eventsList = [
+            { name: "⚡ 1. Tempestade de Raios Dupla", effect: () => { strikeLightningOnPlayers(); strikeLightningOnPlayers(); } },
+            { name: "⚡ 2. Raio Plasma Individual", effect: () => { strikeLightningOnPlayers(); } },
+            { name: "⚡ 3. Bombardeio Elétrico Triplo", effect: () => { strikeLightningOnPlayers(); strikeLightningOnPlayers(); strikeLightningOnPlayers(); } },
+            { name: "🌩️ 4. Relâmpago Cego e Tremores", effect: () => { shake(0.8, 25); playTone(100, 'sawtooth', 0.5, 0.3, 40); } },
+            { name: "⚡ 5. Sobrecarga de Velocidade nas Bolas", effect: () => { for(let b of chaosBalls) { b.vx *= 1.5; b.vy *= 1.5; } } },
+            { name: "🌩️ 6. Fúria Magnética de Raios", effect: () => { strikeLightningOnPlayers(); for(let b of chaosBalls) b.vx *= 1.3; } },
+            { name: "⚡ 7. Eletrocussão da Arena (+300 pts)", effect: () => { shake(0.5, 12); score += 300; } },
+            { name: "🌩️ 8. Raio Divino na Bola Líder", effect: () => { if(chaosBalls.length > 0) chaosBalls[0].hp = 1; } },
+            { name: "⚡ 9. Descarga Elétrica Leve", effect: () => { player.invulnerableTimer = 1.2; } },
+            { name: "🌩️ 10. Tempestade Elétrica com Spawn Extra", effect: () => { strikeLightningOnPlayers(); spawnBall(); } },
+
+            { name: "👑 11. CHEFE: O TITÃ DE AÇO", effect: () => { spawnBall('boss_titan', 35, 15, 180); } },
+            { name: "👾 12. CHEFE: O COLOSSUS ROSA", effect: () => { spawnBall('mythic_50', 32, 12, 350); } },
+            { name: "👻 13. CHEFE: FANTASMA MORTO-VIVO", effect: () => { spawnBall('ghost_stealth', 25, 8, 300); } },
+            { name: "🧲 14. CHEFE: SUPER ÍMÃ DO CAOS", effect: () => { spawnBall('magnet_ball', 28, 12, 220); } },
+            { name: "🔥 15. DUPLO CHEFE DE FOGO", effect: () => { spawnBall('epic_41', 22, 6, 320); spawnBall('epic_42', 22, 6, 320); } },
+            { name: "👹 16. O REI DAS BOLAS LENDÁRIAS", effect: () => { spawnBall('legendary_49', 30, 10, 400); } },
+            { name: "💀 17. BOSS: DESTRUIDOR SÔNICO", effect: () => { spawnBall('rare_32', 12, 5, 450); } },
+            { name: "🦾 18. GIGANTE DE FERRO PESADO", effect: () => { spawnBall('common_4', 30, 8, 150); } },
+            { name: "🐲 19. DRAGÃO DE PLASMAS", effect: () => { spawnBall('uncommon_17', 25, 7, 360); } },
+            { name: "👑 20. DUELO DE CHEFÕES SUPREMOS", effect: () => { spawnBall('mythic_50', 30, 14, 400); spawnBall('boss_titan', 32, 12, 220); } },
+
+            { name: "☄️ 21. Chuva de Meteoros de 3 Bolas", effect: () => { spawnBall(); spawnBall(); spawnBall(); } },
+            { name: "🌀 22. Inversão Gravitacional Global", effect: () => { for(let b of chaosBalls) { b.vx *= -1; b.vy *= -1; } } },
+            { name: "🌪️ 23. Terremoto Severo na Arena", effect: () => { shake(1.5, 25); for(let b of chaosBalls) { b.vx += (Math.random()-0.5)*200; } } },
+            { name: "❄️ 24. Nevasca Congelante Global", effect: () => { player.vx *= 0.4; player.vy *= 0.4; for(let b of chaosBalls) { b.vx *= 0.5; b.vy *= 0.5; } } },
+            { name: "🔥 25. Caldeirão de Magma Quente", effect: () => { for(let b of chaosBalls) { b.vx *= 1.6; b.vy *= 1.6; } } },
+            { name: "⚫ 26. Apagão e Choque Elétrico", effect: () => { shake(0.6, 10); strikeLightningOnPlayers(); } },
+            { name: "💫 27. Teleporte Quântico de Emergência", effect: () => { player.x = 200 + Math.random()*500; player.y = 150 + Math.random()*300; player.invulnerableTimer = 1.0; } },
+            { name: "🛡️ 28. Breve Escudo Protetor", effect: () => { player.invulnerableTimer = 2.0; } },
+            { name: "❤️ 29. Doação de Vidas Extras", effect: () => { if(player.lives < player.maxLives) player.lives++; updateLivesUI(); } },
+            { name: "💰 30. Cofre Aberto (+1200 Pontos)", effect: () => { score += 1200; } },
+            { name: "⏱️ 31. Fenda Temporal (Câmera Lenta nas Bolas)", effect: () => { for(let b of chaosBalls) { b.vx *= 0.5; b.vy *= 0.5; } } },
+            { name: "🧨 32. Limpeza de Bota-Fora de Emergência", effect: () => { if(chaosBalls.length > 2) chaosBalls.pop(); } },
+            { name: "🚀 33. Nitro Global Turbo", effect: () => { player.maxSpeed *= 1.6; setTimeout(() => player.maxSpeed = player.baseMaxSpeed, 5000); } },
+            { name: "🎈 34. Inflar Bolas Pesadas", effect: () => { for(let b of chaosBalls) b.radius = Math.min(35, b.radius * 1.3); } },
+            { name: "📌 35. Encolher Bolas Ligeiras", effect: () => { for(let b of chaosBalls) { b.radius = Math.max(8, b.radius * 0.75); b.vx *= 1.4; b.vy *= 1.4; } } },
+
+            { name: "🎯 36. Sobrecarga de Mira da Torreta", effect: () => { turretCooldown = 0; } },
+            { name: "⚡ 37. Tempestade Elétrica Dupla Feroz", effect: () => { strikeLightningOnPlayers(); strikeLightningOnPlayers(); } },
+            { name: "🌀 38. Redemoinho Gravitacional Central", effect: () => { for(let b of chaosBalls) { b.vx += (WORLD_WIDTH/2 - b.x)*0.4; b.vy += (WORLD_HEIGHT/2 - b.y)*0.4; } } },
+            { name: "💥 39. Onda de Choque Explosiva", effect: () => { shake(0.8, 22); for(let b of chaosBalls) { b.vx *= 1.4; b.vy *= 1.4; } } },
+            { name: "🔋 40. Bateria de Apoio Total", effect: () => { turretCooldown = 0; player.invulnerableTimer = 1.5; } },
+            { name: "🌟 41. Chuva Dupla de Power-Ups", effect: () => { spawnPowerUp(); spawnPowerUp(); spawnPowerUp(); } },
+            { name: "🔮 42. Visão do Apocalipse Mítico", effect: () => { spawnBall('mythic_50', 26, 10, 420); } },
+            { name: "🌪️ 43. Tornado Caótico de Bolas", effect: () => { for(let b of chaosBalls) { b.vx = (Math.random()-0.5)*700; b.vy = (Math.random()-0.5)*700; } } },
+            { name: "⚡ 44. Relâmpago Mortal em Cadeia", effect: () => { strikeLightningOnPlayers(); strikeLightningOnPlayers(); } },
+            { name: "👑 45. HORA DO RUSH (4 Bolas Novas)", effect: () => { spawnBall(); spawnBall(); spawnBall(); spawnBall(); } },
+            { name: "☠️ 46. ALERTA DE BOSS DUPLO + RAIOS", effect: () => { spawnBall('boss_titan', 30, 10, 200); strikeLightningOnPlayers(); } },
+            { name: "⚡ 47. Fúria Suprema dos Raios", effect: () => { strikeLightningOnPlayers(); strikeLightningOnPlayers(); strikeLightningOnPlayers(); } },
+            { name: "🔥 48. Fogo Cruzado e Impacto Global", effect: () => { for(let b of chaosBalls) b.vx *= -1.3; } },
+            { name: "🌪️ 49. Caos Dimensional com Fantasmas", effect: () => { spawnBall('ghost_stealth', 16, 5, 300); spawnBall('magnet_ball', 20, 8, 220); } },
+            { name: "👑 50. APOCALIPSE FINAL ABSOLUTO", effect: () => { for(let i=0; i<5; i++) spawnBall(); strikeLightningOnPlayers(); shake(2.0, 35); } }
+        ];
+
+        function strikeLightningOnPlayers() {
+            let targets = [{x: player.x+12, y: player.y+18, isMe: true}];
+            for (let id in remotePlayers) {
+                targets.push({x: remotePlayers[id].x+12, y: remotePlayers[id].y+18, isMe: false});
+            }
+            for (let t of targets) {
+                lightningStrikes.push({ x: t.x, y: t.y, timer: 0.3 });
+                if (t.isMe && player.invulnerableTimer <= 0) {
+                    player.lives--; updateLivesUI(); shake(0.5, 20); player.invulnerableTimer = 1.5;
+                    playTone(100, 'sawtooth', 0.4, 0.3, 30);
+                    if (player.lives <= 0) triggerGameOver();
+                }
+            }
+            playTone(300, 'square', 0.3, 0.2, 50);
+        }
+
+        function triggerGameOver() {
+            gameState = 'dead';
+            if (mqttClient && mqttClient.connected) { mqttClient.publish(salaId, JSON.stringify({ type: 'gameover', id: myId })); }
+            document.getElementById('finalTime').innerText = document.getElementById('timeText').innerText;
+            document.getElementById('finalScore').innerText = Math.floor(score);
+            if (score > highScore) { highScore = Math.floor(score); localStorage.setItem('arenaSurvivalHighScore', highScore); }
+            document.getElementById('bestScore').innerText = highScore;
+            setTimeout(() => { document.getElementById('gameOverScreen').style.display = 'flex'; }, 1000);
+        }
+
+        function showEventBanner(name) {
+            activeEventName = name;
+            let banner = document.getElementById('eventBanner');
+            document.getElementById('eventNameText').innerText = name;
+            banner.style.display = 'block';
+            eventDisplayTimer = 4;
+        }
+
+        function triggerRandomEvent() {
+            let evIndex = Math.floor(Math.random() * eventsList.length);
+            let chosenEvent = eventsList[evIndex];
+            
+            chosenEvent.effect();
+            showEventBanner(chosenEvent.name);
+
+            if (unlockedMeleeCount < 5) {
+                meleeUnlockProgress += 50;
+                if (meleeUnlockProgress >= 100) {
+                    meleeUnlockProgress = 0;
+                    unlockedMeleeCount++;
+                    playTone(900, 'sine', 0.4, 0.2, 1400);
+                }
+            }
+            updateItemBarUI();
+
+            nextEventInterval = Math.floor(Math.random() * 25) + 10; 
+            randomEventTimer = 0;
+        }
+
+        function updateItemBarUI() {
+            document.getElementById('unlockProgress').innerText = `Nível ${unlockedMeleeCount}/5`;
+        }
+
+        function restartGame() {
+            document.getElementById('gameOverScreen').style.display = 'none';
+            document.getElementById('garageScreen').style.display = 'none';
+            player.lives = 3; player.maxSpeed = player.baseMaxSpeed; player.accel = player.baseAccel; updateLivesUI();
+            gameState = 'playing'; score = 0; survivalTime = 0; 
+            chaosBalls = []; powerUps = []; skidMarks = []; hitEffects = []; activeLasers = []; lightningStrikes = [];
+            ballFixedTimer = 0; randomEventTimer = 0; turretUnlocked = true; turretCooldown = 0;
+            unlockedMeleeCount = 0; meleeUnlockProgress = 0; updateItemBarUI();
+            activeEventName = ""; document.getElementById('eventBanner').style.display = 'none';
+            initArena(); player.x = WORLD_WIDTH / 2 - 12; player.y = WORLD_HEIGHT / 2; player.vx = 0; player.vy = 0;
+            if (isHost()) { spawnBall(); }
+            lastTime = performance.now(); playTone(200, 'sawtooth', 0.6, 0.1, 800);
+        }
+
+        function update(dt) {
+            if (gameState !== 'playing') {
+                if (engineGain && audioCtx) engineGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                if (driftGain && audioCtx) driftGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+                return;
+            }
+
+            survivalTime += dt; 
+            score += dt * 12 * Math.max(1, chaosBalls.length);
+            
+            if (eventDisplayTimer > 0) {
+                eventDisplayTimer -= dt;
+                if (eventDisplayTimer <= 0) document.getElementById('eventBanner').style.display = 'none';
+            }
+
+            document.getElementById('hostStatus').innerText = isHost() ? "👑 HOST (SERVIDOR)" : "📺 CLIENTE (TELA)";
+            document.getElementById('hostStatus').style.color = isHost() ? "#f1c40f" : "#2ecc71";
+
+            let wx = arenaWalls[2].x + 20, wy = arenaWalls[0].y + 20;
+            let ww = arenaWalls[3].x - wx - 20, wh = arenaWalls[1].y - wy - 20;
+
+            if (isHost()) {
+                ballFixedTimer += dt; 
+                if (ballFixedTimer >= 15) { 
+                    ballFixedTimer = 0; 
+                    spawnBall(); 
+                }
+                if (chaosBalls.length < 3) {
+                    spawnBall();
+                }
+
+                randomEventTimer += dt; 
+                if (randomEventTimer >= nextEventInterval) { triggerRandomEvent(); }
+
+                for (let i = lightningStrikes.length - 1; i >= 0; i--) {
+                    lightningStrikes[i].timer -= dt;
+                    if (lightningStrikes[i].timer <= 0) lightningStrikes.splice(i, 1);
+                }
+
+                for (let i = 0; i < chaosBalls.length; i++) {
+                    let b = chaosBalls[i]; b.timer += dt;
+                    
+                    if (b.ballType === 'ghost_stealth') {
+                        b.stealthTimer = (b.stealthTimer || 0) + dt;
+                        if (b.stealthTimer > 6) b.stealthTimer = 0;
+                        b.isVisible = b.stealthTimer < 4;
+                    }
+
+                    if (b.ballType === 'magnet_ball' || b.ballType === 'boss_titan') {
+                        let pList = [{x: player.x + player.width/2, y: player.y + player.height/2, isPlayer: true}];
+                        for (let id in remotePlayers) {
+                            let rp = remotePlayers[id];
+                            pList.push({x: rp.x + 12, y: rp.y + 18, isPlayer: false});
+                        }
+                        for (let pObj of pList) {
+                            let d = getDist(b.x, b.y, pObj.x, pObj.y);
+                            if (d < 240 && d > 10) {
+                                let pullAng = Math.atan2(b.y - pObj.y, b.x - pObj.x);
+                                if (pObj.isPlayer) {
+                                    player.vx += Math.cos(pullAng) * 380 * dt;
+                                    player.vy += Math.sin(pullAng) * 380 * dt;
+                                }
+                            }
+                        }
+                    }
+
+                    if (b.ballType.startsWith('epic_') || b.ballType.startsWith('legendary_') || b.ballType === 'mythic_50' || b.ballType === 'boss_titan') {
+                        let closestPlayerX = player.x + player.width / 2;
+                        let closestPlayerY = player.y + player.height / 2;
+                        let minDist = getDist(b.x, b.y, closestPlayerX, closestPlayerY);
+                        
+                        for (let id in remotePlayers) {
+                            let rp = remotePlayers[id];
+                            let dist = getDist(b.x, b.y, rp.x + 12, rp.y + 18);
+                            if (dist < minDist) { minDist = dist; closestPlayerX = rp.x + 12; closestPlayerY = rp.y + 18; }
+                        }
+
+                        let angleToPlayer = Math.atan2(closestPlayerY - b.y, closestPlayerX - b.x);
+                        let force = b.ballType === 'boss_titan' ? 300 : 200;
+                        b.vx += Math.cos(angleToPlayer) * force * dt * 2.5; b.vy += Math.sin(angleToPlayer) * force * dt * 2.5;
+                        let maxSpd = b.ballType === 'boss_titan' ? 320 : 380;
+                        let currentSpd = getDist(0, 0, b.vx, b.vy);
+                        if (currentSpd > maxSpd) { b.vx = (b.vx / currentSpd) * maxSpd; b.vy = (b.vy / currentSpd) * maxSpd; }
+                    } 
+
+                    b.x += b.vx * dt; b.y += b.vy * dt;
+
+                    let hitWall = false;
+                    if (b.ballType.includes('ghost') || b.ballType === 'legendary_48') {
+                        if (b.x < wx - 50 || b.x > wx + ww + 50 || b.y < wy - 50 || b.y > wy + wh + 50) { b.x = WORLD_WIDTH/2; b.y = WORLD_HEIGHT/2; }
+                    } else {
+                        if (b.x - b.radius < wx) { b.x = wx + b.radius; b.vx *= -1; hitWall = true; }
+                        if (b.x + b.radius > wx + ww) { b.x = wx + ww - b.radius; b.vx *= -1; hitWall = true; }
+                        if (b.y - b.radius < wy) { b.y = wy + b.radius; b.vy *= -1; hitWall = true; }
+                        if (b.y + b.radius > wy + wh) { b.y = wy + wh - b.radius; b.vy *= -1; hitWall = true; }
+                    }
+                    if (hitWall && survivalTime - lastBounceWallSound > 0.08) { playTone(180, 'sawtooth', 0.1, 0.15, 60); lastBounceWallSound = survivalTime; }
+
+                    for (let j = i + 1; j < chaosBalls.length; j++) {
+                        let b2 = chaosBalls[j]; let dx = b2.x - b.x, dy = b2.y - b.y, dist = getDist(0, 0, dx, dy), minDist = b.radius + b2.radius;
+                        if (dist < minDist) {
+                            if (dist === 0) { dx = 1; dy = 1; dist = 1.414; }
+                            let nx = dx / dist, ny = dy / dist, kx = b.vx - b2.vx, ky = b.vy - b2.vy;
+                            let p = 2 * (nx * kx + ny * ky) / 2;
+                            b.vx -= p * nx; b.vy -= p * ny; b2.vx += p * nx; b2.vy += p * ny;
+                            let overlap = minDist - dist;
+                            b.x -= nx * overlap * 0.5; b.y -= ny * overlap * 0.5; b2.x += nx * overlap * 0.5; b2.y += ny * overlap * 0.5;
+                            let bc = document.getElementById('ballsCount'); if(bc) bc.innerText = chaosBalls.length;
+                            if (survivalTime - lastBounceBallSound > 0.05) { playTone(500, 'sine', 0.08, 0.1, 200); lastBounceBallSound = survivalTime; }
+                        }
+                    }
+                }
+
+                for (let i = powerUps.length - 1; i >= 0; i--) {
+                    let p = powerUps[i]; p.x += p.vx * dt; p.y += p.vy * dt;
+                    if (p.x < wx || p.x > wx+ww) p.vx *= -1; if (p.y < wy || p.y > wy+wh) p.vy *= -1;
+                }
+
+                if (performance.now() - lastWorldSync > 60) {
+                    if (mqttClient && mqttClient.connected) {
+                        mqttClient.publish(salaId, JSON.stringify({ 
+                            type: 'world_state', id: myId, balls: chaosBalls, powerups: powerUps, 
+                            lightnings: lightningStrikes, eventName: activeEventName, 
+                            unlockedMelee: unlockedMeleeCount, meleeProgress: meleeUnlockProgress 
+                        }));
+                    }
+                    lastWorldSync = performance.now();
+                }
+            } 
+            else {
+                for (let i = 0; i < chaosBalls.length; i++) { chaosBalls[i].x += chaosBalls[i].vx * dt; chaosBalls[i].y += chaosBalls[i].vy * dt; }
+                for (let i = 0; i < powerUps.length; i++) { powerUps[i].x += powerUps[i].vx * dt; powerUps[i].y += powerUps[i].vy * dt; }
+            }
+
+            let carCenterX = player.x + player.width / 2; 
+            let carCenterY = player.y + player.height / 2;
+            let currentSpeed = getDist(0, 0, player.vx, player.vy);
+
+            let bcElem = document.getElementById('ballsCount');
+            if(bcElem) bcElem.innerText = chaosBalls.length;
+
+            for (let i = chaosBalls.length - 1; i >= 0; i--) {
+                let b = chaosBalls[i];
+                let distToCar = getDist(carCenterX, carCenterY, b.x, b.y);
+
+                let isMovingFast = currentSpeed > 40;
+                let meleeRange = (isMovingFast && unlockedMeleeCount > 0) ? (15 + (unlockedMeleeCount * 4)) : 0;
+                if (meleeRange > 0 && distToCar < b.radius + meleeRange) {
+                    let pushAngle = Math.atan2(b.y - carCenterY, b.x - carCenterX);
+                    b.vx = Math.cos(pushAngle) * 250;
+                    b.vy = Math.sin(pushAngle) * 250;
+                }
+
+                if (distToCar < b.radius + 15) {
+                    if (player.invulnerableTimer <= 0) {
+                        player.lives--; updateLivesUI(); shake(0.4, 15); player.invulnerableTimer = 1.2;
+                        hitEffects.push({ x: b.x, y: b.y, timer: 0.2, radius: 20 }); playTone(150, 'sawtooth', 0.2, 0.15, 50);
+                        if (player.lives <= 0) triggerGameOver();
+                    }
+                    let anglePush = Math.atan2(b.y - carCenterY, b.x - carCenterX);
+                    b.vx = Math.cos(anglePush) * 350; b.vy = Math.sin(anglePush) * 350;
+                    if (!isHost() && mqttClient && mqttClient.connected) { mqttClient.publish(salaId, JSON.stringify({ type: 'sync_bola', bIndex: i, x: b.x, y: b.y, vx: b.vx, vy: b.vy })); }
+                }
+            }
+
+            let nextEventEl = document.getElementById('nextEventText'); if(nextEventEl) nextEventEl.innerText = Math.ceil(Math.max(0, nextEventInterval - randomEventTimer)) + "s";
+            if (player.invulnerableTimer > 0) player.invulnerableTimer -= dt;
+            if (player.chatTimer > 0) player.chatTimer -= dt;
+            if (shakeTime > 0) shakeTime -= dt;
+
+            for (let i = activeLasers.length - 1; i >= 0; i--) { activeLasers[i].timer -= dt; if (activeLasers[i].timer <= 0) activeLasers.splice(i, 1); }
+
+            let ix = 0, iy = 0, isAccelerating = false;
+            if (keys.w) { iy -= 1; isAccelerating = true; } if (keys.s) { iy += 1; isAccelerating = true; }
+            if (keys.a) { ix -= 1; isAccelerating = true; } if (keys.d) { ix += 1; isAccelerating = true; }
+            
+            if (ix !== 0 || iy !== 0) {
+                let len = getDist(0, 0, ix, iy); player.angle = Math.atan2(ix/len, -iy/len);
+                player.vx += (ix/len) * player.accel * dt; player.vy += (iy/len) * player.accel * dt;
+                isAccelerating = true;
+            } else if (touchTarget) {
+                let dx = touchTarget.x - player.x, dy = touchTarget.y - player.y, distToTouch = getDist(0, 0, dx, dy);
+                if (distToTouch > 10) { player.angle = Math.atan2(dx, -dy); player.vx += (dx/distToTouch) * player.accel * dt; player.vy += (dy/distToTouch) * player.accel * dt; isAccelerating = true; }
+            }
+
+            let spd = getDist(0, 0, player.vx, player.vy), movingDir = Math.atan2(player.vx, -player.vy);
+            let angleDiff = Math.abs(player.angle - movingDir); if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+            let actEl = document.getElementById('actionText'); player.isDrifting = false; 
+
+            if (audioUnlocked && engineGain) {
+                let enginePitch = 30 + (spd / player.maxSpeed) * 80; engineOsc.frequency.setTargetAtTime(enginePitch, audioCtx.currentTime, 0.1);
+                engineGain.gain.setTargetAtTime(isAccelerating ? 0.08 : 0.02, audioCtx.currentTime, 0.1);
+            }
+
+            if (angleDiff > 0.6 && spd > 180) {
+                player.isDrifting = true; if(actEl) actEl.innerHTML = "<span class='drift'>🔥 DRIFT!</span>";
+                let cosA = Math.cos(player.angle), sinA = Math.sin(player.angle);
+                skidMarks.push({ x: player.x + 12 - (8*cosA - 15*sinA), y: player.y + 18 - (8*sinA + 15*sinA), life: 2.0 });
+                player.vx -= player.vx * 1.2 * dt; player.vy -= player.vy * 1.2 * dt;
+                if (audioUnlocked && driftGain) driftGain.gain.setTargetAtTime(0.1, audioCtx.currentTime, 0.05);
+            } else { 
+                if(actEl) actEl.innerHTML = ""; player.vx -= player.vx * 4.5 * dt; player.vy -= player.vy * 4.5 * dt; 
+                if (audioUnlocked && driftGain) driftGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.1);
+            }
+
+            if (spd > player.maxSpeed) { player.vx = (player.vx/spd)*player.maxSpeed; player.vy = (player.vy/spd)*player.maxSpeed; }
+            player.x += player.vx * dt; player.y += player.vy * dt;
+
+            let minPX = arenaWalls[2].x + 20, maxPX = arenaWalls[3].x - 20 - player.width;
+            let minPY = arenaWalls[0].y + 20, maxPY = arenaWalls[1].y - 20 - player.height;
+            if (player.x < minPX) player.x = minPX; if (player.x > maxPX) player.x = maxPX;
+            if (player.y < minPY) player.y = minPY; if (player.y > maxPY) player.y = maxPY;
+
+            if (performance.now() - player.lastSync > 30) { sendNetworkUpdate(); player.lastSync = performance.now(); }
+
+            let now = Date.now();
+            for (let id in remotePlayers) { if (now - remotePlayers[id].lastUpdate > 3000) delete remotePlayers[id]; }
+            document.getElementById('playersOnlineText').innerText = 1 + Object.keys(remotePlayers).length;
+
+            for (let id in remotePlayers) {
+                let rp = remotePlayers[id]; rp.x += rp.vx * dt; rp.y += rp.vy * dt;
+                rp.x += (rp.targetX - rp.x) * 0.25; rp.y += (rp.targetY - rp.y) * 0.25;
+                let diff = rp.targetAngle - rp.angle; while (diff < -Math.PI) diff += Math.PI * 2; while (diff > Math.PI) diff -= Math.PI * 2;
+                rp.angle += diff * 15 * dt; if (rp.invulnerableTimer > 0) rp.invulnerableTimer -= dt;
+                if (rp.chatTimer > 0) rp.chatTimer -= dt;
+                if (rp.drifting) { let cosA = Math.cos(rp.angle), sinA = Math.sin(rp.angle); skidMarks.push({ x: rp.x + 12 - (8*cosA - 15*sinA), y: rp.y + 18 - (8*sinA + 15*sinA), life: 2.0 }); }
+            }
+
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                let p = powerUps[i];
+                if (player.x < p.x+p.w && player.x+player.width > p.x && player.y < p.y+p.h && player.y+player.height > p.y) {
+                    if (p.type === 'life') { if (player.lives < player.maxLives) player.lives++; updateLivesUI(); playTone(400, 'sine', 0.2, 0.1, 800); }
+                    if (p.type === 'shield') { player.invulnerableTimer = 2.5; playTone(300, 'square', 0.2, 0.1, 600); } 
+                    powerUps.splice(i, 1);
+                    if (mqttClient && mqttClient.connected) { mqttClient.publish(salaId, JSON.stringify({ type: 'grab_powerup', pIndex: i })); }
+                }
+            }
+
+            if (turretUnlocked) {
+                let turretEl = document.getElementById('turretStatus');
+                if (turretCooldown > 0) { turretCooldown -= dt; } else {
+                    if (chaosBalls.length > 0) {
+                        let closestIdx = 0; let minDist = getDist(chaosBalls[0].x, chaosBalls[0].y, player.x, player.y);
+                        for(let i=1; i<chaosBalls.length; i++) {
+                            let d = getDist(chaosBalls[i].x, chaosBalls[i].y, player.x, player.y);
+                            if(d < minDist) { minDist = d; closestIdx = i; }
+                        }
+                        let target = chaosBalls[closestIdx];
+                        activeLasers.push({ x1: player.x+12, y1: player.y+18, x2: target.x, y2: target.y, timer: 0.15 });
+                        playTone(800, 'square', 0.2, 0.2, 200); target.hp--; let destroyed = false;
+                        if (target.hp <= 0) { chaosBalls.splice(closestIdx, 1); score += 500; destroyed = true; }
+                        if (mqttClient && mqttClient.connected) { mqttClient.publish(salaId, JSON.stringify({ type: 'turret_fire_net', targetIdx: closestIdx, hp: target.hp, destroyed: destroyed, x1: player.x+12, y1: player.y+18, x2: target.x, y2: target.y })); }
+                        turretCooldown = 12; shake(0.1, 4); 
+                    }
+                }
+            }
+
+            for (let i = skidMarks.length - 1; i >= 0; i--) { skidMarks[i].life -= dt; if (skidMarks[i].life <= 0) skidMarks.splice(i, 1); }
+            for (let i = hitEffects.length - 1; i >= 0; i--) { hitEffects[i].timer -= dt; if (hitEffects[i].timer <= 0) hitEffects.splice(i, 1); }
+
+            let min = Math.floor(survivalTime/60); let sec = Math.floor(survivalTime%60);
+            document.getElementById('timeText').innerText = min + ":" + (sec < 10 ? "0"+sec : sec);
+            document.getElementById('scoreText').innerText = Math.floor(score);
+        }
+
+        function draw() {
+            ctx.save();
+            if (shakeTime > 0) { let dx = (Math.random() - 0.5) * shakeMag; let dy = (Math.random() - 0.5) * shakeMag; ctx.translate(dx, dy); }
+            ctx.fillStyle = '#000'; ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+            for (let i=0; i<skidMarks.length; i++) ctx.fillRect(skidMarks[i].x, skidMarks[i].y, 4, 4);
+            ctx.fillStyle = '#2c3e50';
+            for (let i=0; i<arenaWalls.length; i++) ctx.fillRect(arenaWalls[i].x, arenaWalls[i].y, arenaWalls[i].w, arenaWalls[i].h);
+            for (let i=0; i<powerUps.length; i++) { let p = powerUps[i]; ctx.fillStyle = p.type === 'life' ? '#e74c3c' : (p.type === 'nitro' ? '#00ffff' : '#3498db'); ctx.fillRect(p.x, p.y, p.w, p.h); }
+            
+            for (let i=0; i<chaosBalls.length; i++) {
+                let b = chaosBalls[i]; 
+                if (b.ballType === 'ghost_stealth' && !b.isVisible) {
+                    ctx.globalAlpha = 0.15;
+                } else {
+                    ctx.globalAlpha = 1.0;
+                }
+
+                ctx.fillStyle = b.color || '#e74c3c'; 
+                ctx.beginPath(); ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2); ctx.fill(); 
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+
+                if (b.ballType === 'boss_titan' || b.hp > 5) {
+                    ctx.fillStyle = 'red'; ctx.fillRect(b.x - 20, b.y - b.radius - 10, 40, 5);
+                    ctx.fillStyle = 'green'; ctx.fillRect(b.x - 20, b.y - b.radius - 10, (b.hp / 15) * 40, 5);
+                }
+                ctx.globalAlpha = 1.0;
+            }
+
+            for (let i=0; i<lightningStrikes.length; i++) {
+                let l = lightningStrikes[i];
+                ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 6;
+                ctx.beginPath(); ctx.moveTo(l.x, 0); ctx.lineTo(l.x + (Math.random()*20-10), l.y); ctx.stroke();
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.4)';
+                ctx.beginPath(); ctx.arc(l.x, l.y, 40 * (l.timer/0.3), 0, Math.PI*2); ctx.fill();
+            }
+
+            for (let i=0; i<hitEffects.length; i++) { let h = hitEffects[i]; ctx.strokeStyle = '#f1c40f'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(h.x, h.y, h.radius * (1 - h.timer), 0, Math.PI * 2); ctx.stroke(); }
+            for (let i=0; i<activeLasers.length; i++) { let l = activeLasers[i]; ctx.beginPath(); ctx.moveTo(l.x1, l.y1); ctx.lineTo(l.x2, l.y2); ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 4; ctx.stroke(); }
+
+            for (let id in remotePlayers) { 
+                let rp = remotePlayers[id]; 
+                ctx.save(); ctx.translate(rp.x + 12, rp.y + 18); rp.angle = rp.angle || 0; ctx.rotate(rp.angle); ctx.drawImage(rp.sprite, -12, -18); ctx.restore(); 
+                
+                if (rp.chatTimer > 0 && rp.chatMessage) {
+                    ctx.fillStyle = rp.color || '#fff';
+                    ctx.font = '8px "Press Start 2P", monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(rp.chatMessage, rp.x + 12, rp.y - 8);
+                    ctx.textAlign = 'left';
+                }
+            }
+
+            if (gameState === 'playing' && (player.invulnerableTimer <= 0 || Math.floor(player.invulnerableTimer*15)%2 === 0)) {
+                ctx.save(); ctx.translate(player.x + 12, player.y + 18); player.angle = player.angle || 0; ctx.rotate(player.angle); ctx.drawImage(player.sprite, -12, -18);
+                ctx.fillStyle = '#7f8c8d'; ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI*2); ctx.fill(); 
+                ctx.fillStyle = '#2ecc71'; ctx.fillRect(-1.5, -9, 3, 9);
+                ctx.restore();
+
+                if (player.chatTimer > 0 && player.chatMessage) {
+                    ctx.fillStyle = player.color;
+                    ctx.font = '8px "Press Start 2P", monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(player.chatMessage, player.x + 12, player.y - 8);
+                    ctx.textAlign = 'left';
+                }
+            }
+            ctx.restore();
+        }
+
+        window.onload = function() {
+            initArena(); restartGame();
+            function loop(ts) {
+                if (!lastTime) lastTime = ts; let dt = (ts - lastTime) / 1000; if (dt > 0.1) dt = 0.1; lastTime = ts;
+                update(dt); draw(); requestAnimationFrame(loop);
+            }
+            requestAnimationFrame(loop);
+        };
+    </script>
+</body>
+</html>
