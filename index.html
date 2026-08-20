@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Arena Sobrevivência: V42 (Multiplayer Restaurado e Estável)</title>
+    <title>Arena Sobrevivência: V42 (Final Multiplayer)</title>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
@@ -92,7 +92,7 @@
         <p>Vidas: <span id="livesText" style="color: #2ecc71; font-weight: bold;">❤️ 3</span></p>
         <p>Bolas: <span id="ballsCount" style="color: #e74c3c; font-weight: bold;">1</span></p>
         <p>Jogadores: <span id="playersOnlineText" style="color: #3498db;">1</span></p>
-        <p>Sistema: <span class="coadmin-tag" id="hostStatus">V41 (MULTIPLAYER REAL)</span></p>
+        <p>Sistema: <span class="coadmin-tag" id="hostStatus">V42 (MULTIPLAYER)</span></p>
         <p>Arsenal Ativo: <span id="unlockProgress" style="color: #f39c12;">Nível 0/5</span></p>
         <p>Próx Evento: <span id="nextEventText" style="color: #00ffff;">15s</span></p>
         <p id="actionText"></p> 
@@ -230,7 +230,6 @@
                             }
                         }
                         else if (data.type === 'move') {
-                            // RECUPERADO: Renderizando o amigo perfeitamente
                             if (!remotePlayers[data.id]) {
                                 remotePlayers[data.id] = { 
                                     x: data.x, y: data.y, targetX: data.x, targetY: data.y, 
@@ -250,14 +249,12 @@
                             }
                         }
                         else if (data.type === 'gameover') {
-                            if (gameState === 'playing' || gameState === 'garage') {
-                                gameState = 'dead'; player.lives = 0; updateLivesUI();
-                                document.getElementById('gameOverTitle').innerText = "SEU AMIGO BATEU AS BOTAS!";
-                                setTimeout(() => { document.getElementById('gameOverScreen').style.display = 'flex'; }, 1000);
-                            }
+                             if (!isSpectating && Object.keys(remotePlayers).length === 0) {
+                                triggerGameOver();
+                             }
                         }
                         else if (data.type === 'player_dead') {
-                            if (!isSpectating && Object.keys(remotePlayers).length > 0) {
+                            if (!isSpectating && gameState === 'playing') {
                                 document.getElementById('reviveBtn').style.display = 'block';
                             }
                         }
@@ -526,7 +523,6 @@
             playTone(300, 'square', 0.3, 0.2, 50);
         }
 
-        // FUNÇÃO DE MORTE CORRIGIDA: Não quebra o update das outras coisas
         function handlePlayerDeathSafe() {
             if (isSpectating) return;
             let hasOnlineFriend = (mqttClient && mqttClient.connected && Object.keys(remotePlayers).length > 0);
@@ -616,7 +612,6 @@
                 return;
             }
 
-            // O JOGO INTEIRO CONTINUA RODANDO AQUI
             survivalTime += dt; 
             score += dt * 12 * Math.max(1, chaosBalls.length);
             
@@ -739,7 +734,6 @@
                 for (let i = 0; i < powerUps.length; i++) { powerUps[i].x += powerUps[i].vx * dt; powerUps[i].y += powerUps[i].vy * dt; }
             }
 
-            // ATUALIZANDO OS OUTROS JOGADORES NA REDE (ISSO QUE FAZ O MULTIPLAYER FUNCIONAR)
             let now = Date.now();
             for (let id in remotePlayers) { if (now - remotePlayers[id].lastUpdate > 3000) delete remotePlayers[id]; }
             document.getElementById('playersOnlineText').innerText = 1 + Object.keys(remotePlayers).length;
@@ -757,10 +751,6 @@
             for (let i = skidMarks.length - 1; i >= 0; i--) { skidMarks[i].life -= dt; if (skidMarks[i].life <= 0) skidMarks.splice(i, 1); }
             for (let i = hitEffects.length - 1; i >= 0; i--) { hitEffects[i].timer -= dt; if (hitEffects[i].timer <= 0) hitEffects.splice(i, 1); }
 
-            // ======= AQUI É O SEGREDO DO BUG CORRIGIDO =======
-            // O código acima rola pra todo mundo, mantendo a tela atualizada com o seu amigo e com as bolas.
-            // O código abaixo SÓ rola se você estiver vivo. Se estiver morto, ignora.
-            
             if (!isSpectating) {
                 let carCenterX = player.x + player.width / 2; 
                 let carCenterY = player.y + player.height / 2;
@@ -871,7 +861,6 @@
                     }
                 }
             }
-            // ======= FIM DA CORREÇÃO DE MORTE =======
 
             let min = Math.floor(survivalTime/60); let sec = Math.floor(survivalTime%60);
             document.getElementById('timeText').innerText = min + ":" + (sec < 10 ? "0"+sec : sec);
